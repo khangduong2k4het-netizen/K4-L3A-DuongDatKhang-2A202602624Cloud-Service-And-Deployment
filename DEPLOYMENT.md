@@ -1,126 +1,98 @@
-# Thông Tin Deploy — Checkpoint 5
+# Thông tin triển khai — Checkpoint 5
 
-> Điền file này sau khi deploy xong. `pytest tests/test_cp5.py` đọc file này
-> để tìm địa chỉ service của bạn và gọi thử.
->
-> **Chỉ ghi TÊN biến môi trường, tuyệt đối không dán giá trị API key vào đây.**
-> Repo này công khai — dán khóa vào là mất khóa.
-
-## Thông Tin Học Viên
+## Học viên
 
 | Mục | Nội dung |
-|-----|----------|
-| Họ và tên | Dương Đạt Khang |
-| Mã học viên | 2A202602624 |
+|---|---|
+| Họ và tên | Dương Đạt Khang (theo tên repository) |
+| Mã học viên | 2A202602624 (theo tên repository) |
 | Repo | https://github.com/khangduong2k4het-netizen/K4-L3A-DuongDatKhang-2A202602624Cloud-Service-And-Deployment |
 
-## Service
+## Trạng thái
 
-| Mục | Nội dung |
-|-----|----------|
-| Public URL | https://k4-l3a-day12-duongdatkhang.up.railway.app |
-| Platform | Railway |
-| Ngày deploy | 2026-09-28 |
+Đã kiểm chứng Docker Compose local ngày 28/09/2026.
+Đang dùng phương án dự phòng `LOCAL_FALLBACK=true`, CP5 tối đa **9/15**.
+Chưa triển khai cloud: phiên làm việc chưa có service/account cloud được cung cấp.
+Platform cloud dự kiến: Render (cấu hình `render.yaml` có sẵn);
+Railway có cấu hình `railway.toml`. Chưa xác nhận triển khai trên hai nền tảng này.
 
-## Biến Môi Trường Đã Set Trên Cloud
+- Local URL: http://localhost:18000
+- Public HTTPS URL: chưa có.
+- Agent và Redis đều báo healthy.
+- Cổng 8000 đang do dự án khác sử dụng, nên dùng PORT=18000.
+- Redis nằm trong mạng Compose, không publish cổng Redis ra host.
 
-Ghi tên biến và **nguồn giá trị**, không ghi giá trị:
+## Cấu hình
 
-| Biến | Đã set | Ghi chú |
-|------|--------|---------|
-| `PORT` | ✅ | platform tự gán |
-| `AGENT_API_KEY` | ✅ | đặt trong dashboard, không nằm trong repo |
-| `REDIS_URL` | ✅ | Redis add-on của Railway |
-| `RATE_LIMIT_PER_MINUTE` | ✅ | 10 |
-| `MONTHLY_BUDGET_USD` | ✅ | 10.0 |
-| `LOG_LEVEL` | ✅ | INFO |
+| Biến | Nguồn / ý nghĩa |
+|---|---|
+| `PORT` | .env local; cloud cấp khi triển khai |
+| `AGENT_API_KEY` | .env bị Git bỏ qua; cloud phải đặt qua secret store |
+| `REDIS_URL` | Compose trỏ tới service redis; cloud cần Redis của platform |
+| `RATE_LIMIT_PER_MINUTE` | .env hoặc mặc định 10 |
+| `MONTHLY_BUDGET_USD` | .env hoặc mặc định 10.0 |
+| `LOG_LEVEL` | .env hoặc mặc định INFO |
+| `LOCAL_FALLBACK` | true cho phiên kiểm tra local |
+| `LOCAL_BASE_URL` | http://localhost:18000 |
+| `DEPLOY_API_KEY` | Chỉ cần cho kiểm tra bổ sung trên cloud; không ghi secret vào tài liệu |
 
-## Lệnh Kiểm Tra
+## Bằng chứng chạy thật
 
-Thay `<URL>` bằng Public URL ở trên:
+Build: `docker build -t day12-agent:prod .`.
 
-```bash
-# 1. Liveness — mong đợi 200 {"status":"ok"}
-curl -i <URL>/health
+Docker Desktop hiển thị **252 MB disk usage**, **59.6 MB content size**.
+`docker image inspect` trả `Size=59551039` byte cho content trên image store
+containerd của máy này. Cả hai số đều dưới **500 MB**; đây là kích thước
+runtime image, không phải tổng build cache hay tổng stack Redis + agent.
+Script `scripts/check-image-size.ps1` kiểm tra cả hai cách báo dung lượng.
 
-# 2. Readiness — mong đợi 200 {"status":"ready"} (đã nối được Redis)
-curl -i <URL>/ready
+Kiểm tra bên trong image: UID=10001; pytest không được cài; không có /app/.env.
 
-# 3. Không có API key — mong đợi 401
-curl -i -X POST <URL>/ask \
-  -H "Content-Type: application/json" \
-  -d '{"question":"Hello"}'
+Bộ kiểm thử CP1–CP5 và regression: **83 passed, 5 skipped** (10,51 giây).
+Hai test Docker đã build/đo image thật. Năm test cloud được bỏ qua do
+LOCAL_FALLBACK=true; các test CP5 local đều pass. Có một cảnh báo deprecation
+từ Starlette/httpx trong môi trường kiểm thử, không làm test thất bại.
+Bonus CI/CD không nằm trong lần kiểm chứng này.
 
-# 4. Có API key — mong đợi 200 kèm câu trả lời
-curl -i -X POST <URL>/ask \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $AGENT_API_KEY" \
-  -H "X-User-Id: sv-test" \
-  -d '{"question":"Deploy là gì?"}'
+Kết quả gọi HTTP thật, dùng user kiểm thử riêng:
 
-# 5. Rate limit — gọi 15 lần, những lần cuối phải trả 429
-for i in $(seq 1 15); do
-  curl -s -o /dev/null -w "%{http_code} " -X POST <URL>/ask \
-    -H "Content-Type: application/json" \
-    -H "X-API-Key: $AGENT_API_KEY" \
-    -H "X-User-Id: sv-test" \
-    -d '{"question":"test"}'
-done; echo
+```text
+GET /health 200 {"status":"ok","service":"day12-agent","version":"1.0.0"}
+GET /ready 200 {"status":"ready","redis":true}
+POST /ask without key 401
+POST /ask authenticated statuses [200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 429]
+history lengths [0, 2]
 ```
 
-## Kết Quả Chạy Thật
+Ảnh chụp trình duyệt headless từ endpoint đang chạy thật:
+[screenshots/health.png](screenshots/health.png). Đây là ảnh dịch vụ local,
+không phải ảnh dashboard cloud.
 
-Dán output của các lệnh trên vào đây:
+## Tái kiểm tra
 
-```
-1. Liveness (/health):
-HTTP/1.1 200 OK
-content-length: 53
-content-type: application/json
-{"status":"ok","service":"day12-agent","version":"1.0.0"}
-
-2. Readiness (/ready):
-HTTP/1.1 200 OK
-content-length: 31
-content-type: application/json
-{"status":"ready","redis":true}
-
-3. Không có API key (/ask):
-HTTP/1.1 401 Unauthorized
-content-length: 38
-content-type: application/json
-{"detail":"invalid or missing API key"}
-
-4. Có API key (/ask):
-HTTP/1.1 200 OK
-content-length: 220
-content-type: application/json
-{"answer":"Theo mình hiểu, Deploy là gì liên quan tới cách hệ thống được đóng gói và vận hành...","user_id":"sv-test","history_length":0,"cost_usd":0.000045,"tokens":{"in":25,"out":52}}
-
-5. Rate limit (15 requests liên tiếp):
-200 200 200 200 200 200 200 200 200 200 429 429 429 429 429
+```powershell
+docker compose up -d --wait
+docker compose ps
+.\scripts\check-image-size.ps1
+curl.exe -i http://localhost:18000/health
+curl.exe -i http://localhost:18000/ready
+.\.venv\Scripts\python.exe -m pytest tests/test_cp5.py -v
 ```
 
-## Ảnh Chụp Màn Hình
+Lấy khóa từ .env hoặc môi trường trong máy để gọi /ask; không dán khóa vào
+tài liệu hoặc screenshot. Test kiểm tra auth ở local được bổ sung bằng phép
+gọi thật nêu trên, không dùng mock HTTP.
 
-Đặt ảnh trong thư mục `screenshots/`:
+## Để hoàn tất CP5 cloud
 
-- `screenshots/dashboard.png` — trang quản lý service trên platform
-- `screenshots/health.png` — kết quả gọi `/health` từ trình duyệt hoặc curl
+Triển khai service Docker và Redis, đặt các biến môi trường ở secret store,
+ghi URL HTTPS thật tại đây, tắt LOCAL_FALLBACK, đặt DEPLOY_API_KEY trong
+.env local nếu cần rồi chạy lại tests/test_cp5.py. Bổ sung ảnh dashboard
+và kết quả health/readiness cloud. Chưa đánh dấu các bước này đã hoàn tất.
 
----
+## Giới hạn của mô hình lab
 
-## Nếu Dùng Phương Án Dự Phòng
-
-Không đăng ký được tài khoản cloud? Vẫn nộp được bài, nhưng CP5 tối đa 60% điểm:
-
-1. Đặt `LOCAL_FALLBACK=true` trong `.env`
-2. Chạy `docker compose up -d` rồi kiểm tra `docker compose ps`
-3. Chụp màn hình vào `screenshots/`
-4. Chạy `pytest tests/test_cp5.py -v` — bộ test sẽ tự chuyển sang kiểm tra
-   `http://localhost:8000`
-5. Ghi rõ lý do không deploy được vào phần dưới đây:
-
-```
-Tài khoản Cloud (Railway/Render) đang trong quá trình xét duyệt phương thức xác thực hoặc hạ tầng mạng trường đại học bị chặn kết nối ra ngoài, kích hoạt chế độ LOCAL_FALLBACK để kiểm thử cục bộ qua Docker Compose.
-```
+X-User-Id do client cung cấp dưới một API key dùng chung; đây chưa phải hệ
+thống định danh đa người dùng. Cost guard kiểm tra chi phí đã ghi trước khi
+gọi mock LLM; nó chưa đặt trước ngân sách cho nhiều lượt gọi LLM đồng thời.
+Không nên coi đó là bảo đảm cứng cho hóa đơn LLM thật.

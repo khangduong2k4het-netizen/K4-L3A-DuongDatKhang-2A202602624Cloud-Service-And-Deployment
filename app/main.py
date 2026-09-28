@@ -16,7 +16,8 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from functools import lru_cache
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
+from redis.exceptions import RedisError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -57,13 +58,25 @@ def get_cost_guard() -> CostGuard:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """CHO SẴN — chạy lúc app khởi động và lúc tắt."""
+    get_settings()  # Validate required configuration before accepting traffic.
+    lifecycle.shutting_down = False
     lifecycle.install()
     log_event("service_started", service=SERVICE_NAME, version=SERVICE_VERSION)
-    yield
-    log_event("service_stopped", service=SERVICE_NAME)
+    try:
+        yield
+    finally:
+        lifecycle.shutting_down = True
+        lifecycle.uninstall()
+        log_event("service_stopped", service=SERVICE_NAME)
 
 
 app = FastAPI(title="Day 12 Production Agent", version=SERVICE_VERSION, lifespan=lifespan)
+
+
+@app.exception_handler(RedisError)
+async def redis_unavailable(_request, _exc):
+    log_event("redis_unavailable", level="error")
+    return JSONResponse(status_code=503, content={"detail": "backing service unavailable"})
 
 
 class AskRequest(BaseModel):
@@ -151,6 +164,8 @@ def ask(
     ``user_id`` do ``verify_api_key`` trả về, nên request không có API key
     hợp lệ sẽ dừng ở 401 trước khi chạm vào bất cứ dòng nào ở đây.
     """
+    if lifecycle.shutting_down:
+        raise HTTPException(status_code=503, detail="shutting_down")
     limiter.check(user_id)
     guard.check(user_id)
     history = store.get_history(user_id)
@@ -159,17 +174,12 @@ def ask(
     store.append(user_id, "assistant", result["answer"])
     guard.record(user_id, result["cost_usd"])
     log_event(
-        "ask_completed",
-        user_id=user_id,
-        tokens_in=result["tokens_in"],
-        tokens_out=result["tokens_out"],
-        cost_usd=result["cost_usd"],
+        "ask_completed", user_id=user_id, tokens_in=result["tokens_in"],
+        tokens_out=result["tokens_out"], cost_usd=result["cost_usd"],
     )
     return {
-        "answer": result["answer"],
-        "user_id": user_id,
-        "history_length": len(history),
-        "cost_usd": result["cost_usd"],
+        "answer": result["answer"], "user_id": user_id,
+        "history_length": len(history), "cost_usd": result["cost_usd"],
         "tokens": {"in": result["tokens_in"], "out": result["tokens_out"]},
     }
 

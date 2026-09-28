@@ -1,6 +1,25 @@
 # K4 — Level 3A, Ngày 12: Hạ Tầng Cloud & Deployment (240 phút)
 
-![CI](https://github.com/khangduong2k4het-netizen/K4-L3A-DuongDatKhang-2A202602624Cloud-Service-And-Deployment/actions/workflows/ci.yml/badge.svg)
+## Chạy bản đã hoàn thiện
+
+CP1–CP4 đã triển khai; bằng chứng chạy Docker local và tình trạng CP5 nằm trong
+[DEPLOYMENT.md](DEPLOYMENT.md). Runtime image dùng Python slim, multi-stage,
+user không phải root và chỉ cài `requirements-runtime.txt`.
+
+```powershell
+docker build -t day12-agent:prod .
+.\scripts\check-image-size.ps1
+docker compose up -d --wait
+.\.venv\Scripts\python.exe -m pytest tests/test_cp1.py tests/test_cp2.py tests/test_cp3.py tests/test_cp4.py tests/test_cp5.py tests/test_reliability.py -v
+```
+
+Tạo `.env` từ `.env.example` nếu chưa có, đặt khóa riêng trong `AGENT_API_KEY`.
+`PORT` quyết định cả cổng container và cổng localhost. Phiên kiểm chứng local
+dùng `PORT=18000`, `LOCAL_FALLBACK=true`, `LOCAL_BASE_URL=http://localhost:18000`
+vì cổng 8000 đang được ứng dụng khác sử dụng. Redis chỉ mở trong mạng Compose.
+CP5 local fallback được chấm tối đa 9/15; chưa có bằng chứng deploy HTTPS cloud.
+Chế độ `fake://` chỉ dành cho môi trường phát triển có `requirements.txt`;
+image production yêu cầu Redis thật.
 
 Đưa một AI agent từ `localhost:8000` lên một địa chỉ công khai mà người khác
 gọi được, có bảo mật, có giới hạn chi phí, và không sập khi bạn deploy bản mới.
