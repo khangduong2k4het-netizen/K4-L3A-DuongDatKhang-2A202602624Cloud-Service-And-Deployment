@@ -49,12 +49,12 @@ docker images | grep agent
 
 | Bản | Dung lượng |
 |-----|-----------|
-| 1 stage (bản đầu) | 1.02 GB |
-| Multi-stage | 168 MB |
+| 1 stage (bản đầu) | ~1.02 GB |
+| Multi-stage | 310 MB |
 
 Giải thích: phần dung lượng chênh lệch đó là những gì?
 
-Phần dung lượng chênh lệch (~850 MB) bao gồm:
+Phần dung lượng chênh lệch (~710 MB) bao gồm:
 1. **Hệ điều hành nền tảng đầy đủ vs rút gọn:** Bản ban đầu sử dụng base image `python:3.11` tiêu chuẩn (dựa trên Debian bookworm đầy đủ) chứa toàn bộ trình biên dịch C/C++ (`gcc`, `g++`, `make`), các header file, công cụ build và vô số thư viện tiện ích hệ thống đồ sộ không dùng đến ở môi trường runtime. Bản multi-stage chuyển sang sử dụng `python:3.11-slim` chỉ chứa nhân tối thiểu cần thiết để thông dịch Python.
 2. **Loại bỏ công cụ build và cache cài đặt:** Ở bản 1-stage, lệnh `pip install` để lại bộ nhớ đệm bánh xe (`pip cache`), tài liệu package và các file trung gian trong các layer của image. Với multi-stage build, toàn bộ việc build dependency diễn ra trong stage `builder`; stage runtime chỉ việc copy thư mục venv (`/opt/venv`) thành phẩm và mã nguồn của ứng dụng, hoàn toàn sạch sẽ và tối ưu dung lượng.
 
